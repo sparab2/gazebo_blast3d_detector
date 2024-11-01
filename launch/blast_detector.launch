@@ -1,0 +1,6 @@
+<launch>
+    <!-- Node launch -->
+    <node pkg="gazebo_blast3d_detector" type="gazebo_blast3d_detector_node" name="blast_detector" output= "screen">
+        <param name="" value="" />
+    </node>
+</launch>
