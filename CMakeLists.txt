@@ -166,7 +166,10 @@ include_directories(
 
 ## Specify libraries to link a library or executable target against
  target_link_libraries(${PROJECT_NAME}_node
-   ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}
+   ${catkin_LIBRARIES}
+   opencv_core
+   opencv_imgproc
+   opencv_highgui
  )
 
 #############
