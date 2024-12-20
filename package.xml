@@ -68,6 +68,7 @@
   <exec_depend>message_runtime</exec_depend>
 
   <depend>opencv</depend>
+  <depend>rospy</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

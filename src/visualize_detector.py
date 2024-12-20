@@ -47,6 +47,12 @@ class EventStream:
             self.y.extend(new_y)
             self.t.extend(new_t)
             self.p.extend(new_p)
+    def calculate_histogram(self, bin_count=24):  # Adjust bin_count as necessary
+        if self.y:  # Check if there are y-coordinates to process
+            y_array = np.array(self.y)
+            histogram, bin_edges = np.histogram(y_array, bins=bin_count, range=(0, 480))
+            return histogram, bin_edges
+        return None, None
 
 class ROSVisualizer:
     def __init__(self):
