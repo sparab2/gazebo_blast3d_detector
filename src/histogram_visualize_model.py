@@ -5,104 +5,109 @@ from matplotlib.animation import FuncAnimation
 from gazebo_blast3d.msg import EventArray
 from collections import deque
 from rospy.timer import Rate
+
 import threading
 
-class DiffusionModel:
-    def __init__(self, width, height, D, dt):
-        self.width = width
-        self.height = height
-        self.D = D  # Diffusion coefficient
-        self.dt = dt  # Time step
-        self.density = np.zeros((height, width))
-
-    def update_density(self):
-        # Calculate gradients twice to simulate the second derivative (laplacian)
-        dy, dx = np.gradient(self.density)
-        d2y = np.gradient(dy, axis=0)  # Second derivative with respect to y
-        d2x = np.gradient(dx, axis=1)  # Second derivative with respect to x
-
-        # Update density using the diffusion equation
-        self.density += self.D * self.dt * (d2x + d2y)
-
-    def add_event(self, x, y):
-        # Simple model to add an event at (x, y)
-        if 0 <= x < self.width and 0 <= y < self.height:
-            self.density[y, x] += 1
-
-    def decay_events(self):
-        # Simple decay of events over time
-        self.density *= 0.99
-
 class EventStream:
-    def __init__(self, max_length=1000, height=480, blast_threshold=20):
-        self.y = deque(maxlen=max_length)  # Using deque for automatic handling of max length
+    def __init__(self, max_length=1000, height=480, width=640, blast_threshold=10, verification_threshold=3, min_data_threshold=50):
+        self.x = deque(maxlen=max_length)
+        self.y = deque(maxlen=max_length)
         self.height = height
-        self.event_histories = []
-        self.blast_threshold = blast_threshold 
+        self.width = width
+        self.event_histories_y = []
+        self.event_histories_x = []
+        self.blast_threshold = blast_threshold
+        self.verification_threshold = verification_threshold
+        self.min_data_threshold = min_data_threshold
+        self.consecutive_detections = 0
 
-        # Initialize ROS Node and Subscriber
         rospy.init_node('event_stream')
         rospy.Subscriber('/event_topic', EventArray, self.callback)
 
     def callback(self, data):
         for event in data.events:
-            self.add_event(event.y)  # Assuming 'y' is a property of events in EventArray
+            self.add_event(event.x, event.y)
+        self.update_histogram()
 
-    def add_event(self, y):
+    def add_event(self, x, y):
+        self.x.append(x)
         self.y.append(y)
-        #print(f"Added y-coordinate: {y}, Total events: {len(self.y)}")
-
-    def detect_blasts(self, histogram):
-        if len(self.event_histories) > 10:  # Ensure there's enough data to analyze
-            recent_histograms = np.array(self.event_histories[-10:])  # Last 10 histograms
-            avg_events = np.mean(recent_histograms, axis=0)
-            std_dev = np.std(recent_histograms, axis=0)
-            threshold = avg_events + 2 * std_dev  # Setting threshold as mean + 2*std
-
-            peaks = np.sum(histogram > threshold)
-            if peaks > 4:
-                print(f"[ALERT] Blast detected with {peaks} high-density areas exceeding thresholds!")
-
 
     def update_histogram(self):
-        y_array = np.array(self.y)
-        histogram, _ = np.histogram(y_array, bins=30, range=(0, self.height))
-        self.event_histories.append(histogram)
-        self.detect_blasts(histogram)
+        if len(self.y) > self.min_data_threshold:
+            y_array = np.array(self.y)
+            x_array = np.array(self.x)
+            histogram_y, _ = np.histogram(y_array, bins=20, range=(min(self.y), max(self.y)))
+            histogram_x, _ = np.histogram(x_array, bins=20, range=(min(self.x), max(self.x)))
+            self.event_histories_y.append(histogram_y)
+            self.event_histories_x.append(histogram_x)
+            self.apply_diffusion()
+
+            if self.confirm_blast_y(self.event_histories_y[-1]) and self.confirm_blast_x(self.event_histories_x[-1]):
+                self.consecutive_detections += 1
+                if self.consecutive_detections >= self.verification_threshold:
+                    print("[ALERT] Confirmed blast detection with significant activity on both axes!")
+                    self.consecutive_detections = 0
+                else:
+                    self.consecutive_detections = 0
+
+    def apply_diffusion(self):
+        if len(self.event_histories_y) > 1:
+            self.event_histories_y[-1] = (self.event_histories_y[-2] * 0.8 + self.event_histories_y[-1] * 0.2).astype(int)
+            self.event_histories_x[-1] = (self.event_histories_x[-2] * 0.8 + self.event_histories_x[-1] * 0.2).astype(int)
+
+    def confirm_blast_y(self, histogram_y):
+        recent_history_y = np.array(self.event_histories_y[-5:])
+        avg_events_y = np.mean(recent_history_y, axis=0)
+        threshold_y = avg_events_y + 1.96 * np.std(recent_history_y, axis=0)
+        return np.any(histogram_y > threshold_y)
+
+    def confirm_blast_x(self, histogram_x):
+        recent_history_x = np.array(self.event_histories_x[-5:])
+        avg_events_x = np.mean(recent_history_x, axis=0)
+        threshold_x = avg_events_x + 1.5 * np.std(recent_history_x, axis=0)
+        return np.any(histogram_x > threshold_x)
 
 class ROSHistogramVisualizer:
     def __init__(self, event_stream):
         self.event_stream = event_stream
-        self.fig, self.ax = plt.subplots()
+        self.fig, self.axs = plt.subplots(2, 1)  # Create two subplots vertically aligned
 
     def update_plot(self, frame):
-        self.ax.clear()
-        y_array = np.array(self.event_stream.y)
-        if len(y_array) == 0:
-            print("No data to plot.")
+        if not self.event_stream.y:
             return
+
+        y_array = np.array(self.event_stream.y)
+        x_array = np.array(self.event_stream.x)
         
-        histogram, bin_edges = np.histogram(y_array, bins=30, range=(0, 480))
-        self.ax.bar(bin_edges[:-1], histogram, width=np.diff(bin_edges), align='edge', color='blue')
-        self.ax.set_title("Event Distribution Histogram")
-        self.ax.set_xlabel('Vertical Position')
-        self.ax.set_ylabel('Number of Events')
-        plt.draw()
+        histogram_y, bin_edges_y = np.histogram(y_array, bins=50, range=(0, 480))
+        histogram_x, bin_edges_x = np.histogram(x_array, bins=50, range=(0, 640))
+        
+        self.axs[0].cla()  # Clear the Y-axis subplot
+        self.axs[1].cla()  # Clear the X-axis subplot
+        
+        self.axs[0].bar(bin_edges_y[:-1], histogram_y, width=np.diff(bin_edges_y), align='edge', color='blue')
+        self.axs[0].set_title("Y-axis Event Distribution")
+        self.axs[0].set_xlabel('Vertical Position')
+        self.axs[0].set_ylabel('Number of Events')
+
+        self.axs[1].bar(bin_edges_x[:-1], histogram_x, width=np.diff(bin_edges_x), align='edge', color='red')
+        self.axs[1].set_title("X-axis Event Distribution")
+        self.axs[1].set_xlabel('Horizontal Position')
+        self.axs[1].set_ylabel('Number of Events')
+
+        plt.tight_layout()  # Adjust subplots to fit into figure cleanly
 
     def run(self):
-        # Start a separate thread for ROS operations to prevent blocking by plt.show()
         def ros_thread():
             rate = Rate(10)  # 10 Hz
             while not rospy.is_shutdown():
                 self.event_stream.update_histogram()
                 rate.sleep()
 
-        t = threading.Thread(target=ros_thread)
-        t.start()
-
+        threading.Thread(target=ros_thread).start()
         ani = FuncAnimation(self.fig, self.update_plot, interval=100, cache_frame_data=False)
         plt.show()
-        t.join()  # Ensure ROS thread finishes cleanly after closing the plot
 
 if __name__ == '__main__':
     event_stream = EventStream(max_length=1000, height=480)

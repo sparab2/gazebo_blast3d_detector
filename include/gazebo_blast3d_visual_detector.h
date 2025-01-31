@@ -10,10 +10,12 @@
 #include <numeric>
 #include <vector>
 #include <chrono>
+#include <fstream>
 
 class BlastDetector {
 public:
     BlastDetector();
+    ~BlastDetector();  // Destructor declaration
     void eventArrayCallback(const gazebo_blast3d::EventArrayConstPtr& msg);
 
 private:
@@ -34,6 +36,7 @@ private:
     
     std::chrono::steady_clock::time_point last_blast_time_;
     long debounce_duration_; //milliseconds
+    std::ofstream detection_log;
 };
 
 #endif // BLAST_DETECTOR_H

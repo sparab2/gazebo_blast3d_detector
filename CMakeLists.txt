@@ -167,9 +167,8 @@ include_directories(
 ## Specify libraries to link a library or executable target against
  target_link_libraries(${PROJECT_NAME}_node
    ${catkin_LIBRARIES}
-   opencv_core
-   opencv_imgproc
-   opencv_highgui
+   ${OpenCV_LIBS}
+   -fsanitize=address
  )
 
 #############
@@ -183,6 +182,8 @@ include_directories(
 ## in contrast to setup.py, you can choose the destination
  catkin_install_python(PROGRAMS
    src/visualize_detector.py
+   src/histogram_visualize_model.py
+   src/histogram_visualize.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
  )
 

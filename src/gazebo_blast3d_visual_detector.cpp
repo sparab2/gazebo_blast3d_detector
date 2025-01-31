@@ -4,11 +4,27 @@
 #include <numeric>
 #include <visualization_msgs/MarkerArray.h>
 
+#include <fstream>
+
+// Declare the ofstream as a member variable in your class
+std::ofstream detection_log;
+
+BlastDetector::~BlastDetector() {
+    if (detection_log.is_open()) {
+        detection_log.close();
+    }
+}
+
+
 BlastDetector::BlastDetector() : debounce_duration_(1000) { // Adjust these values based on your camera settings
     event_sub_ = nh_.subscribe("event_topic", 1, &BlastDetector::eventArrayCallback, this);
     marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
     x_distribution_.resize(640, 0); // Assuming width is 640
     y_distribution_.resize(480/20, 0); // Assuming height is 480
+    
+    // Open the file in the constructor
+    detection_log.open("/home.md2/sparab2/wind/uncc_wind_control/ros_image/ros_ws/src/gazebo_blast3d/datasets/detection.csv", std::ios::out);
+    detection_log << "Time,X,Y,Z,EventID\n"; // Assuming these are the fields you care about
 }
 
 void BlastDetector::eventArrayCallback(const gazebo_blast3d::EventArrayConstPtr& msg) {
@@ -17,12 +33,13 @@ void BlastDetector::eventArrayCallback(const gazebo_blast3d::EventArrayConstPtr&
     // Filter events based on time or other criteria
     for (const auto& event : msg->events) {
         recent_events.push_back(event);  // assuming you want to filter or process events here
+        detection_log << ros::Time::now() << "," << event.x << "," << event.y << "," << (event.polarity ? "1" : "0") << "\n";
     }
 
     // Further processing...
     updateDistributions(recent_events);
     if (detectBlast(x_distribution_, y_distribution_)) {
-        ROS_INFO("Blast detected!");
+        //ROS_INFO("Blast detected!");
         publishMarkers(msg);
     }
 }
@@ -53,14 +70,14 @@ void BlastDetector::publishMarkers(const gazebo_blast3d::EventArrayConstPtr& eve
 }
 
 void BlastDetector::updateDistributions(const std::vector<gazebo_blast3d::Event>& events) {
-    ROS_DEBUG("Updating distributions with %lu events", events.size());
+    //ROS_DEBUG("Updating distributions with %lu events", events.size());
     std::fill(x_distribution_.begin(), x_distribution_.end(), 0);
     std::fill(y_distribution_.begin(), y_distribution_.end(), 0);
     
     for (const auto& event : events) {
         x_distribution_[event.x]++;
         y_distribution_[event.y]++;
-        ROS_DEBUG("Event at x: %d, y: %d", event.x, event.y);
+        //ROS_DEBUG("Event at x: %d, y: %d", event.x, event.y);
     }
 }
 
@@ -83,7 +100,7 @@ bool BlastDetector::isRapidIncrease(const std::vector<int>& y_distribution, int 
     double threshold = sum * (threshold_percentage / 100.0);
     for (int count : y_distribution) {
         if (count > threshold) {
-            ROS_INFO("Rapid vertical increase detected at count: %d", count);
+            //ROS_INFO("Rapid vertical increase detected at count: %d", count);
             return true;
         }
     }
@@ -102,7 +119,7 @@ bool BlastDetector::isExpansion(const std::vector<int>& x_distribution, int thre
     }
     // Check if a significant number of points exceed the calculated threshold
     if (count_above_threshold > x_distribution.size() * threshold_percentage / 100) {
-        ROS_INFO("Horizontal expansion detected with %d points above threshold", count_above_threshold);
+        //ROS_INFO("Horizontal expansion detected with %d points above threshold", count_above_threshold);
         return true;
     }
     return false;
